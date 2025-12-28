@@ -1,0 +1,333 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: swanythree-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-n8n_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-SecureDBPassword123!}
+      POSTGRES_DB: ${DB_DATABASE:-n8n}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - swanythree-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-n8n_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: swanythree-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-SecureRedisPassword123!}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - swanythree-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # N8N Instance 1
+  n8n-1:
+    image: n8nio/n8n:latest
+    container_name: swanythree-n8n-1
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - N8N_PROTOCOL=https
+      - N8N_HOST=${APP_URL:-localhost}
+      - N8N_PORT=5678
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      # Database
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${DB_DATABASE:-n8n}
+      - DB_POSTGRESDB_USER=${DB_USER:-n8n_user}
+      - DB_POSTGRESDB_PASSWORD=${DB_PASSWORD:-SecureDBPassword123!}
+
+      # Redis
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD:-SecureRedisPassword123!}
+      - EXECUTIONS_MODE=queue
+
+      # Security
+      - N8N_JWT_SECRET=${JWT_SECRET}
+      - N8N_SECURE_COOKIE=true
+
+      # API Keys
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+      # AWS
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+
+      # Logging
+      - N8N_LOG_LEVEL=info
+      - N8N_LOG_OUTPUT=console
+
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/workflows
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - swanythree-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # N8N Instance 2 (for load balancing)
+  n8n-2:
+    image: n8nio/n8n:latest
+    container_name: swanythree-n8n-2
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - N8N_PROTOCOL=https
+      - N8N_HOST=${APP_URL:-localhost}
+      - N8N_PORT=5678
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${DB_DATABASE:-n8n}
+      - DB_POSTGRESDB_USER=${DB_USER:-n8n_user}
+      - DB_POSTGRESDB_PASSWORD=${DB_PASSWORD:-SecureDBPassword123!}
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD:-SecureRedisPassword123!}
+      - EXECUTIONS_MODE=queue
+      - N8N_JWT_SECRET=${JWT_SECRET}
+      - N8N_SECURE_COOKIE=true
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - N8N_LOG_LEVEL=info
+      - N8N_LOG_OUTPUT=console
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/workflows
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - swanythree-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # NGINX Load Balancer
+  nginx:
+    image: nginx:alpine
+    container_name: swanythree-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/nginx/ssl:/etc/nginx/ssl:ro
+      - ./config/nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      - n8n-1
+      - n8n-2
+    networks:
+      - swanythree-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus Metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: swanythree-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - swanythree-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana Dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: swanythree-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SERVER_ROOT_URL=https://${APP_URL:-localhost}/grafana
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - swanythree-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MCP Universal Server
+  mcp-universal:
+    build:
+      context: ./mcp-servers/universal
+      dockerfile: Dockerfile
+    container_name: swanythree-mcp-universal
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3100
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-SecureRedisPassword123!}
+    ports:
+      - "3100:3100"
+    depends_on:
+      - redis
+    networks:
+      - swanythree-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MCP Design System Server
+  mcp-design:
+    build:
+      context: ./mcp-servers/design-system
+      dockerfile: Dockerfile
+    container_name: swanythree-mcp-design
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3101
+    ports:
+      - "3101:3101"
+    networks:
+      - swanythree-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3101/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MCP API Gateway Server
+  mcp-api-gateway:
+    build:
+      context: ./mcp-servers/api-gateway
+      dockerfile: Dockerfile
+    container_name: swanythree-mcp-api-gateway
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3102
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-SecureRedisPassword123!}
+    ports:
+      - "3102:3102"
+    depends_on:
+      - redis
+    networks:
+      - swanythree-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3102/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MCP Analytics Server
+  mcp-analytics:
+    build:
+      context: ./mcp-servers/analytics
+      dockerfile: Dockerfile
+    container_name: swanythree-mcp-analytics
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3103
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=${DB_DATABASE:-n8n}
+      - DB_USER=${DB_USER:-n8n_user}
+      - DB_PASSWORD=${DB_PASSWORD:-SecureDBPassword123!}
+    ports:
+      - "3103:3103"
+    depends_on:
+      - postgres
+    networks:
+      - swanythree-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3103/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  n8n_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  swanythree-network:
+    driver: bridge

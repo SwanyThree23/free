@@ -1,0 +1,70 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'swanythree-ultimate'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['localhost:9093']
+
+# Load rules
+rule_files:
+  - 'alerts.yml'
+
+# Scrape configurations
+scrape_configs:
+  # N8N instances
+  - job_name: 'n8n'
+    static_configs:
+      - targets:
+          - 'n8n-1:5678'
+          - 'n8n-2:5678'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # PostgreSQL
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+    metrics_path: '/metrics'
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+
+  # NGINX
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx:9113']
+    metrics_path: '/metrics'
+
+  # MCP Servers
+  - job_name: 'mcp-universal'
+    static_configs:
+      - targets: ['mcp-universal:3100']
+    metrics_path: '/metrics'
+
+  - job_name: 'mcp-design'
+    static_configs:
+      - targets: ['mcp-design:3101']
+    metrics_path: '/metrics'
+
+  - job_name: 'mcp-api-gateway'
+    static_configs:
+      - targets: ['mcp-api-gateway:3102']
+    metrics_path: '/metrics'
+
+  - job_name: 'mcp-analytics'
+    static_configs:
+      - targets: ['mcp-analytics:3103']
+    metrics_path: '/metrics'
+
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

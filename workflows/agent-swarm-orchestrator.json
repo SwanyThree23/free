@@ -1,0 +1,257 @@
+{
+  "name": "Claude Skills Agent Swarm Orchestrator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent-swarm",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "headerAuth",
+        "functionCode": "// Authenticate JWT token\nconst token = $input.item.json.headers.authorization?.replace('Bearer ', '');\n\nif (!token) {\n  return {\n    json: { error: 'Authentication required' },\n    statusCode: 401\n  };\n}\n\n// Verify JWT (simplified - use proper JWT library in production)\nconst jwt = require('jsonwebtoken');\nconst JWT_SECRET = process.env.JWT_SECRET;\n\ntry {\n  const decoded = jwt.verify(token, JWT_SECRET);\n  return {\n    json: {\n      user: decoded,\n      request: $input.item.json.body\n    }\n  };\n} catch (error) {\n  return {\n    json: { error: 'Invalid token' },\n    statusCode: 401\n  };\n}"
+      },
+      "id": "auth-check",
+      "name": "Authentication Check",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse and validate request\nconst request = $input.item.json.request;\nconst user = $input.item.json.user;\n\n// Validate required fields\nif (!request.request) {\n  return {\n    json: { error: 'Missing required field: request' },\n    statusCode: 400\n  };\n}\n\n// Check permissions\nif (user.role === 'free') {\n  return {\n    json: { error: 'Agent swarm requires Pro or Admin tier' },\n    statusCode: 403\n  };\n}\n\n// Generate task ID\nconst crypto = require('crypto');\nconst taskId = 'task_' + crypto.randomBytes(8).toString('hex');\n\n// Determine which agents to use\nconst requestText = request.request.toLowerCase();\nconst selectedAgents = [];\n\nif (requestText.includes('design') || requestText.includes('ui') || requestText.includes('frontend')) {\n  selectedAgents.push('frontend');\n}\n\nif (requestText.includes('mcp') || requestText.includes('data') || requestText.includes('integration')) {\n  selectedAgents.push('mcp-builder');\n}\n\nif (requestText.includes('seo') || requestText.includes('search') || requestText.includes('keywords')) {\n  selectedAgents.push('seo');\n}\n\nif (requestText.includes('content') || requestText.includes('write') || requestText.includes('copy')) {\n  selectedAgents.push('content');\n}\n\nif (requestText.includes('code review') || requestText.includes('security') || requestText.includes('audit')) {\n  selectedAgents.push('code-review');\n}\n\n// Default to content agent if no match\nif (selectedAgents.length === 0) {\n  selectedAgents.push('content');\n}\n\nreturn {\n  json: {\n    taskId,\n    request: request.request,\n    industry: request.industry || 'general',\n    priority: request.priority || 'medium',\n    agents: selectedAgents,\n    user: user,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "parse-request",
+      "name": "Parse Request",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Store task in database\nconst task = $input.item.json;\n\nconst db = require('pg');\nconst pool = new db.Pool({\n  host: process.env.DB_HOST,\n  port: process.env.DB_PORT,\n  database: process.env.DB_DATABASE,\n  user: process.env.DB_USER,\n  password: process.env.DB_PASSWORD\n});\n\nawait pool.query(\n  'INSERT INTO agent_tasks (id, user_id, request, industry, priority, agents, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',\n  [task.taskId, task.user.userId, task.request, task.industry, task.priority, JSON.stringify(task.agents), 'processing', task.timestamp]\n);\n\nreturn { json: task };"
+      },
+      "id": "store-task",
+      "name": "Store Task",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Split into multiple agent tasks\nconst task = $input.item.json;\nconst agentTasks = [];\n\nfor (const agent of task.agents) {\n  agentTasks.push({\n    taskId: task.taskId,\n    agent: agent,\n    request: task.request,\n    industry: task.industry,\n    priority: task.priority,\n    status: 'queued'\n  });\n}\n\nreturn agentTasks.map(t => ({ json: t }));"
+      },
+      "id": "split-agents",
+      "name": "Split to Agents",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "agent-router",
+              "name": "Route to Agent",
+              "value": "={{ $json.agent }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-agent",
+      "name": "Switch Agent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-3-opus-20240229",
+        "prompt": "=You are a Frontend Development Agent specialized in UI/UX design and modern web development.\\n\\nTask: {{ $json.request }}\\nIndustry: {{ $json.industry }}\\n\\nPlease provide:\\n1. Design recommendations\\n2. Component structure\\n3. Code implementation (React/Vue)\\n4. Styling (Tailwind CSS)\\n5. Accessibility considerations (WCAG 2.1)\\n\\nFormat your response as JSON with the following structure:\\n{\\n  \\\"design\\\": { ... },\\n  \\\"components\\\": [ ... ],\\n  \\\"code\\\": \\\"...\\\",\\n  \\\"styling\\\": \\\"...\\\",\\n  \\\"accessibility\\\": [ ... ]\\n}",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 4000
+        }
+      },
+      "id": "frontend-agent",
+      "name": "Frontend Agent (Claude)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1450, 100],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-api",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "claude-3-opus-20240229",
+        "prompt": "=You are an MCP Builder Agent specialized in creating Model Context Protocol servers and data integrations.\\n\\nTask: {{ $json.request }}\\nIndustry: {{ $json.industry }}\\n\\nPlease provide:\\n1. MCP server architecture\\n2. Data source connectors\\n3. Schema definitions\\n4. Implementation code\\n5. Testing strategy\\n\\nFormat your response as JSON.",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 4000
+        }
+      },
+      "id": "mcp-builder-agent",
+      "name": "MCP Builder Agent (Claude)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1450, 250],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-api",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "claude-3-opus-20240229",
+        "prompt": "=You are an SEO Specialist Agent focused on search engine optimization.\\n\\nTask: {{ $json.request }}\\nIndustry: {{ $json.industry }}\\n\\nPlease provide:\\n1. Keyword research and recommendations\\n2. Meta tags (title, description, keywords)\\n3. Schema markup\\n4. Content optimization suggestions\\n5. Competitor analysis\\n\\nFormat your response as JSON.",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 4000
+        }
+      },
+      "id": "seo-agent",
+      "name": "SEO Agent (Claude)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1450, 400],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-api",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "claude-3-opus-20240229",
+        "prompt": "=You are a Content Creation Agent specialized in copywriting and content strategy.\\n\\nTask: {{ $json.request }}\\nIndustry: {{ $json.industry }}\\n\\nPlease provide:\\n1. Content strategy\\n2. Written content (blog posts, social media, emails)\\n3. Tone and voice recommendations\\n4. Call-to-action suggestions\\n5. Content calendar\\n\\nFormat your response as JSON.",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 4000
+        }
+      },
+      "id": "content-agent",
+      "name": "Content Agent (Claude)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1450, 550],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-api",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "claude-3-opus-20240229",
+        "prompt": "=You are a Code Review Agent specialized in security and best practices.\\n\\nTask: {{ $json.request }}\\nIndustry: {{ $json.industry }}\\n\\nPlease provide:\\n1. Security vulnerabilities\\n2. Code quality issues\\n3. Best practice violations\\n4. Performance optimizations\\n5. Recommendations\\n\\nFormat your response as JSON.",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 4000
+        }
+      },
+      "id": "code-review-agent",
+      "name": "Code Review Agent (Claude)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1450, 700],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-api",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Aggregate all agent responses\nconst responses = $input.all();\nconst taskId = responses[0].json.taskId;\n\n// Combine results\nconst aggregatedResults = {\n  taskId: taskId,\n  status: 'completed',\n  results: responses.map(r => ({\n    agent: r.json.agent,\n    output: r.json.output\n  })),\n  completedAt: new Date().toISOString()\n};\n\n// Update task status in database\nconst db = require('pg');\nconst pool = new db.Pool({\n  host: process.env.DB_HOST,\n  port: process.env.DB_PORT,\n  database: process.env.DB_DATABASE,\n  user: process.env.DB_USER,\n  password: process.env.DB_PASSWORD\n});\n\nawait pool.query(\n  'UPDATE agent_tasks SET status = $1, results = $2, completed_at = $3 WHERE id = $4',\n  ['completed', JSON.stringify(aggregatedResults.results), aggregatedResults.completedAt, taskId]\n);\n\nreturn { json: aggregatedResults };"
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "response",
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1850, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Authentication Check", "type": "main", "index": 0 }]]
+    },
+    "Authentication Check": {
+      "main": [[{ "node": "Parse Request", "type": "main", "index": 0 }]]
+    },
+    "Parse Request": {
+      "main": [[{ "node": "Store Task", "type": "main", "index": 0 }]]
+    },
+    "Store Task": {
+      "main": [[{ "node": "Split to Agents", "type": "main", "index": 0 }]]
+    },
+    "Split to Agents": {
+      "main": [[{ "node": "Switch Agent", "type": "main", "index": 0 }]]
+    },
+    "Switch Agent": {
+      "main": [
+        [{ "node": "Frontend Agent (Claude)", "type": "main", "index": 0 }],
+        [{ "node": "MCP Builder Agent (Claude)", "type": "main", "index": 0 }],
+        [{ "node": "SEO Agent (Claude)", "type": "main", "index": 0 }],
+        [{ "node": "Content Agent (Claude)", "type": "main", "index": 0 }],
+        [{ "node": "Code Review Agent (Claude)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Frontend Agent (Claude)": {
+      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
+    },
+    "MCP Builder Agent (Claude)": {
+      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
+    },
+    "SEO Agent (Claude)": {
+      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
+    },
+    "Content Agent (Claude)": {
+      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
+    },
+    "Code Review Agent (Claude)": {
+      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Results": {
+      "main": [[{ "node": "Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": true,
+  "settings": {},
+  "versionId": "1",
+  "id": "agent-swarm-orchestrator",
+  "meta": {
+    "instanceId": "swanythree-ultimate"
+  },
+  "tags": []
+}
