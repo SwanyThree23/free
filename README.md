@@ -1,10 +1,17 @@
-# Model Context Protocol (MCP) Documentation
+# MCP Hub - AI-Powered MCP Server Management Platform
 
-> A comprehensive guide to connecting Claude to MCP servers and extending AI capabilities with tools and data sources
+> A Full-Stack AI MVP for managing and monitoring Model Context Protocol (MCP) servers with intelligent automation and analytics
 
-## Overview
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-green)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5%2B-blue)](https://www.typescriptlang.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-14%2B-black)](https://nextjs.org/)
 
-This repository provides complete documentation and examples for working with the Model Context Protocol (MCP), enabling you to extend Claude's capabilities by connecting to both local and remote MCP servers. MCP transforms AI assistants from helpful tools into informed teammates capable of handling complex, multi-step projects with real-time access to external resources.
+## 🚀 Overview
+
+MCP Hub is a comprehensive full-stack web application that transforms how developers and enterprises manage Model Context Protocol (MCP) servers. Built with AI-first principles following the latest MVP development best practices, it combines the power of Claude AI with modern web technologies to deliver intelligent server management, real-time analytics, and automated troubleshooting.
+
+This repository includes both a production-ready web application and comprehensive MCP documentation to help you get started with the Model Context Protocol.
 
 ## What is MCP?
 
@@ -16,24 +23,133 @@ The Model Context Protocol (MCP) is a standardized protocol that allows AI appli
 
 MCP servers can be hosted locally on your machine or remotely on the internet, providing flexibility for different use cases and deployment scenarios.
 
+## 🎯 Key Features of MCP Hub
+
+### Web Application Features
+- 🎨 **Modern Full-Stack Architecture**: Next.js + React frontend with Node.js/Express backend
+- 🤖 **AI-Powered Management**: Claude AI integration for intelligent server configuration and troubleshooting
+- 📊 **Real-time Dashboard**: Live server monitoring with WebSocket updates
+- 🔒 **Enterprise Security**: JWT authentication, RBAC, and comprehensive audit logging
+- 📈 **Advanced Analytics**: Usage tracking, cost analysis, and performance metrics
+- 🛠️ **Tool & Resource Management**: Browse, test, and manage MCP server capabilities
+
+### Documentation Features
+- 📚 **Comprehensive Guides**: Step-by-step tutorials for local and remote MCP servers
+- 💻 **SDK Documentation**: Coverage of all 10 official MCP SDKs
+- 🎓 **Best Practices**: AI MVP development patterns and security considerations
+- 🔧 **Code Examples**: Ready-to-use configurations and implementation samples
+
 ## Repository Structure
 
 ```
-.
-├── README.md                           # This file
-├── docs/
+free/
+├── README.md                        # Project overview (this file)
+├── APPLICATION_ARCHITECTURE.md      # Detailed architecture documentation
+├── package.json                     # Root package.json (monorepo)
+├── docker-compose.yml               # Local development infrastructure
+│
+├── frontend/                        # Next.js frontend application
+│   ├── src/
+│   │   ├── components/             # React components
+│   │   ├── pages/                  # Next.js pages
+│   │   ├── hooks/                  # Custom React hooks
+│   │   ├── services/               # API services
+│   │   └── utils/                  # Utility functions
+│   ├── package.json
+│   └── tsconfig.json
+│
+├── backend/                         # Express backend API
+│   ├── src/
+│   │   ├── routes/                 # API routes
+│   │   ├── controllers/            # Route controllers
+│   │   ├── services/               # Business logic
+│   │   ├── middleware/             # Express middleware
+│   │   ├── config/                 # Configuration files
+│   │   └── utils/                  # Utility functions
+│   ├── prisma/                     # Database schema & migrations
+│   │   └── schema.prisma           # Prisma schema
+│   ├── package.json
+│   └── tsconfig.json
+│
+├── docs/                            # Comprehensive documentation
 │   ├── guides/
-│   │   ├── remote-mcp-servers.md      # Connect to remote MCP servers
-│   │   ├── local-mcp-servers.md       # Connect to local MCP servers
-│   │   ├── claude-4.5-features.md     # Claude 4.5 capabilities
-│   │   └── sdks.md                    # Available SDKs
+│   │   ├── remote-mcp-servers.md   # Remote server guide
+│   │   ├── local-mcp-servers.md    # Local server guide
+│   │   ├── claude-4.5-features.md  # Claude 4.5 capabilities
+│   │   └── sdks.md                 # SDK documentation
 │   ├── api/
-│   │   └── overview.md                # Claude API overview
-│   └── examples/
-│       ├── claude_desktop_config.json # Example configurations
-│       └── remote-server-config.json
-└── LICENSE
+│   │   └── overview.md             # API documentation
+│   └── examples/                    # Configuration examples
+│       ├── claude_desktop_config.json
+│       └── remote-server-example.md
+│
+└── LICENSE                          # MIT License
 ```
+
+## 🚀 Quick Start (Web Application)
+
+### Prerequisites
+- **Node.js** 18.0.0 or higher
+- **npm** 9.0.0 or higher
+- **Docker** (for PostgreSQL and Redis)
+- **Anthropic API Key** ([Get one here](https://console.anthropic.com/))
+
+### Installation
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/SwanyThree23/free.git
+cd free
+
+# 2. Install all dependencies
+npm run install:all
+
+# 3. Start infrastructure (PostgreSQL & Redis)
+docker-compose up -d
+
+# 4. Set up environment variables
+cp backend/.env.example backend/.env
+cp frontend/.env.local.example frontend/.env.local
+# Edit the .env files with your configuration
+
+# 5. Initialize the database
+cd backend
+npm run prisma:generate
+npm run migrate
+cd ..
+
+# 6. Start development servers
+npm run dev
+```
+
+The application will be available at:
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:3001
+- **API Health**: http://localhost:3001/health
+
+### Technology Stack
+
+#### Frontend
+- **Framework**: Next.js 14+ (React 18+)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **State**: Zustand
+- **Data Fetching**: TanStack Query
+- **Forms**: React Hook Form + Zod
+
+#### Backend
+- **Runtime**: Node.js 18+
+- **Framework**: Express.js
+- **Language**: TypeScript
+- **ORM**: Prisma
+- **Auth**: JWT + bcrypt
+- **Real-time**: Socket.IO
+
+#### Infrastructure
+- **Database**: PostgreSQL 15+
+- **Cache**: Redis 7+
+- **AI**: Anthropic Claude API
+- **MCP SDK**: @modelcontextprotocol/sdk
 
 ## Quick Start
 

@@ -1,0 +1,319 @@
+// MCP Hub Database Schema
+// AI-Powered MCP Server Management Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User Management
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password      String
+  name          String?
+  avatar        String?
+  role          UserRole  @default(USER)
+  apiKey        String?   @unique
+  isActive      Boolean   @default(true)
+  emailVerified Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+
+  // Relations
+  mcpServers    MCPServer[]
+  apiUsage      APIUsage[]
+  subscriptions Subscription[]
+  sessions      Session[]
+  auditLogs     AuditLog[]
+
+  @@index([email])
+  @@index([apiKey])
+  @@map("users")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  DEVELOPER
+}
+
+// Session Management
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("sessions")
+}
+
+// MCP Server Configuration
+model MCPServer {
+  id            String           @id @default(uuid())
+  userId        String
+  name          String
+  description   String?
+  type          MCPServerType
+  status        ServerStatus     @default(INACTIVE)
+  url           String?
+  command       String?
+  args          Json?
+  env           Json?
+  isLocal       Boolean          @default(true)
+  isActive      Boolean          @default(true)
+  config        Json?
+  metadata      Json?
+  lastSync      DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  // Relations
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tools         MCPTool[]
+  resources     MCPResource[]
+  prompts       MCPPrompt[]
+  analytics     ServerAnalytics[]
+  logs          ServerLog[]
+
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@map("mcp_servers")
+}
+
+enum MCPServerType {
+  FILESYSTEM
+  GITHUB
+  GITLAB
+  GDRIVE
+  SLACK
+  POSTGRES
+  SQLITE
+  PUPPETEER
+  BRAVE_SEARCH
+  CUSTOM
+}
+
+enum ServerStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+  SYNCING
+}
+
+// MCP Tools
+model MCPTool {
+  id          String    @id @default(uuid())
+  serverId    String
+  name        String
+  description String?
+  inputSchema Json
+  examples    Json?
+  isEnabled   Boolean   @default(true)
+  usageCount  Int       @default(0)
+  lastUsed    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  server MCPServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@index([serverId])
+  @@index([name])
+  @@map("mcp_tools")
+}
+
+// MCP Resources
+model MCPResource {
+  id          String    @id @default(uuid())
+  serverId    String
+  uri         String
+  name        String
+  description String?
+  mimeType    String?
+  size        Int?
+  content     String?
+  metadata    Json?
+  isEnabled   Boolean   @default(true)
+  accessCount Int       @default(0)
+  lastAccess  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  server MCPServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@index([serverId])
+  @@index([uri])
+  @@map("mcp_resources")
+}
+
+// MCP Prompts
+model MCPPrompt {
+  id          String    @id @default(uuid())
+  serverId    String
+  name        String
+  description String?
+  template    String
+  arguments   Json?
+  isEnabled   Boolean   @default(true)
+  usageCount  Int       @default(0)
+  lastUsed    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  server MCPServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@index([serverId])
+  @@index([name])
+  @@map("mcp_prompts")
+}
+
+// AI Configuration
+model AIConfiguration {
+  id               String   @id @default(uuid())
+  name             String
+  model            String   // claude-opus-4-5, claude-sonnet-4-5, etc.
+  maxTokens        Int      @default(4096)
+  temperature      Float?
+  extendedThinking Boolean  @default(false)
+  thinkingBudget   Int?
+  effortLevel      String?  // low, medium, high
+  systemPrompt     String?
+  tools            Json?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([model])
+  @@map("ai_configurations")
+}
+
+// API Usage Tracking
+model APIUsage {
+  id            String   @id @default(uuid())
+  userId        String
+  endpoint      String
+  method        String
+  statusCode    Int
+  responseTime  Int
+  inputTokens   Int?
+  outputTokens  Int?
+  totalTokens   Int?
+  cost          Float?
+  model         String?
+  timestamp     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([timestamp])
+  @@map("api_usage")
+}
+
+// Server Analytics
+model ServerAnalytics {
+  id              String    @id @default(uuid())
+  serverId        String
+  date            DateTime
+  requestCount    Int       @default(0)
+  successCount    Int       @default(0)
+  errorCount      Int       @default(0)
+  avgResponseTime Float?
+  totalTokens     Int       @default(0)
+  totalCost       Float     @default(0)
+  metrics         Json?
+
+  server MCPServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@unique([serverId, date])
+  @@index([serverId])
+  @@index([date])
+  @@map("server_analytics")
+}
+
+// Server Logs
+model ServerLog {
+  id        String   @id @default(uuid())
+  serverId  String
+  level     LogLevel
+  message   String
+  details   Json?
+  timestamp DateTime @default(now())
+
+  server MCPServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@index([serverId])
+  @@index([timestamp])
+  @@map("server_logs")
+}
+
+enum LogLevel {
+  INFO
+  WARN
+  ERROR
+  DEBUG
+}
+
+// Subscription Management
+model Subscription {
+  id              String             @id @default(uuid())
+  userId          String
+  plan            SubscriptionPlan
+  status          SubscriptionStatus @default(ACTIVE)
+  stripeCustomerId String?          @unique
+  stripeSubscriptionId String?     @unique
+  currentPeriodStart DateTime?
+  currentPeriodEnd DateTime?
+  cancelAtPeriodEnd Boolean        @default(false)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("subscriptions")
+}
+
+enum SubscriptionPlan {
+  FREE
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  TRIALING
+}
+
+// Audit Logs
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  action    String
+  resource  String
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  timestamp DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
